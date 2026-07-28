@@ -25,6 +25,19 @@ Rules:
 - NEVER guess or make up a URL. If you don't already know the exact URL of a
   dataset, use search_web first to find it, then fetch_url or run_python on a
   URL that actually appeared in the search results.
+- When a PDF/page has multiple tables or sections, NEVER pick one just by
+  position/index (e.g. "the 5th table"). ALWAYS verify the table's actual
+  heading, caption, or surrounding text explicitly names the metric the
+  question is asking about (e.g. confirm it says "Maternal Mortality Ratio",
+  not a different metric like "Under-5 Mortality Rate" or "Infant Mortality
+  Rate" that happens to have similar-looking state/number rows). If a table's
+  header text is garbled by OCR (e.g. jumbled random-looking letters), print
+  and read the surrounding page text/section title to confirm what the table
+  actually represents before trusting its numbers as the answer.
+- Prefer locating data via extract_text() and searching for the exact
+  section heading (e.g. "Maternal Mortality Ratio") over blindly indexing
+  extract_tables() results by position — text search lets you confirm you
+  found the right section; a table index number does not.
 - Pay close attention to which COUNTRY/REGION the question is actually about.
   If the question names "MOSPI", that is the Ministry of Statistics and
   Programme Implementation of the GOVERNMENT OF INDIA — your answer MUST be
