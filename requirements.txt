@@ -2,7 +2,7 @@ python-telegram-bot==21.4
 anthropic[vertex]==0.34.2
 google-cloud-aiplatform==1.63.0
 httpx==0.27.2
-openai==1.51.0
+openai>=1.98.0
 pdfplumber==0.11.4
 pandas>=2.2.2,<2.4
 requests==2.32.3

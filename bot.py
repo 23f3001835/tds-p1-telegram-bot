@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # in-memory per-chat conversation history: chat_id -> list of {"role","content"}
 CHAT_HISTORY = defaultdict(list)
-MAX_HISTORY_MESSAGES = 10  # keep last N messages of context per chat
+MAX_HISTORY_MESSAGES = 2  # keep last N messages of context per chat
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,6 +54,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(reply_json)
+    CHAT_HISTORY[chat_id] = []
 
 
 def main():

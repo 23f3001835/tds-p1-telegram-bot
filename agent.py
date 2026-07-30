@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from tools import TOOL_DEFINITIONS, TOOL_FUNCTIONS
 
 MODEL = "claude-sonnet-4-6"
-MAX_TOOL_ITERATIONS = 20
+MAX_TOOL_ITERATIONS = 30
 
 # Which backend to use — set exactly one of these in .env:
 # PROVIDER=vertex    -> Google Cloud Vertex AI (needs GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_REGION)
@@ -52,16 +52,44 @@ Rules:
   names (e.g. Uttar Pradesh, Bihar, Assam, Tamil Nadu, Kerala, etc.).
 - Use the run_python and fetch_url tools to actually fetch and compute answers from
   real data (e.g. MOSPI or other public datasets) — never guess or make up numbers.
+- run_python is STATELESS — each call is a brand-new Python process. NOTHING
+  carries over from a previous run_python call: not variables, not
+  downloaded PDFs, not parsed tables, not imports beyond the ones already
+  preloaded. Every single run_python call must download/fetch/parse
+  everything it needs from scratch, in that same code block, ending with
+  print(). If you find yourself referencing a variable you defined in an
+  earlier tool call, stop — rewrite the whole thing as one self-contained
+  snippet instead.
 - When extracting data from a PDF, table, or messy text: FIRST print() a small
   sample of the raw extracted content (or use pdfplumber's extract_tables())
   to see its real structure, THEN write targeted parsing logic based on what
   you actually see. Do not write a generic regex/parsing attempt blind and
-  assume it's right.
+  assume it's right. Prefer extract_tables() over regex on raw extract_text()
+  output whenever a real table is present — regex on raw text is fragile and
+  tends to match unrelated numbers (dates, page numbers, footnotes).
+ - WATCH FOR CHARACTER-DOUBLING PDF ARTIFACTS: pdfplumber sometimes extracts
+  bold or emphasized text as every character duplicated (e.g. "Tamil Nadu"
+  becomes "TTaammiill NNaadduu", and critically the NUMBERS in that same row
+  get doubled too — "79" becomes "7799", "134" becomes "113344"). If you fix
+  a garbled state/column NAME by de-duplicating repeated characters, you
+  MUST apply the exact same de-duplication to the NUMERIC values in that
+  row — never assume only the name was corrupted. A simple fix: apply
+  re.sub(r'(.)\\1', r'\\1', s) to the whole raw row string (not just the
+  name) before splitting into columns.
+- SANITY-CHECK EVERY EXTRACTED NUMBER against its neighbors in the same
+  column/table before trusting it. If one row's value is wildly outside the
+  range of every other row in that column (e.g. 10x-100x larger or smaller),
+  that is a strong signal of a PDF extraction artifact, not a real outlier —
+  re-extract that specific row (e.g. via extract_text and manual parsing,
+  or de-duplication) rather than accepting it as the answer.
 - If a run_python attempt produces a clearly wrong or nonsensical result
   (e.g. a date, a page number, or a word instead of a real state/number),
   do NOT repeat the same or a near-identical approach — change strategy
   entirely (e.g. print raw data first, try extract_tables instead of
-  extract_text+regex, or look at a different page/source).
+  extract_text+regex, or look at a different page/source). Never retry an
+  approach that already failed more than once in a row; if you notice
+  yourself about to write nearly the same code again, stop and pick a
+  genuinely different method instead.
 - NEVER fabricate, mock, or invent data to stand in for a real dataset you
   couldn't fetch. If after real effort (search_web + fetch_url + run_python)
   you genuinely cannot access the real data, say so honestly in the "answer"
@@ -80,6 +108,15 @@ Rules:
 - If a multi-turn conversation is shown, answer only the most recent question, using
   earlier messages as context if relevant.
 """
+
+FORCE_FINAL_PROMPT = (
+    "You are out of tool-call turns. Based on everything found so far in "
+    "this conversation, reply now with ONLY the final JSON object exactly "
+    "as originally requested — your best answer from the data already "
+    'gathered, or {"answer": null, "error": "could not determine answer"} '
+    "only if truly nothing usable was found. No more tool calls, no "
+    "markdown, no explanation — just the JSON object."
+)
 
 
 def _find_all_json_objects(text: str):
@@ -231,6 +268,26 @@ def _run_anthropic_style(conversation_history, log_path, public_log_url):
             final_text = "\n".join(text_parts)
             break
 
+    if final_text is None:
+        # Ran out of tool-call iterations without a final answer — force one
+        # last no-tools call so we get a real (possibly null-but-honest) JSON
+        # reply instead of silently falling back to "{}" -> answer: null.
+        messages.append({"role": "user", "content": FORCE_FINAL_PROMPT})
+        try:
+            final_response = client.messages.create(
+                model=MODEL,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=messages,
+            )
+            final_text = "".join(
+                b.text for b in final_response.content if b.type == "text"
+            )
+        except Exception as e:
+            final_text = json.dumps(
+                {"answer": None, "error": f"ran out of iterations: {e}"}
+            )
+
     return _finalize(final_text, conversation_history, tool_call_log, log_path, public_log_url)
 
 
@@ -270,7 +327,7 @@ OPENAI_TOOLS = _to_openai_tools()
 def _run_openai_compatible(conversation_history, log_path, public_log_url, base_url, api_key, model):
     from openai import OpenAI
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
+    client = OpenAI(base_url=base_url, api_key=api_key, timeout=120,)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + [
         {"role": "user", "content": msg["content"]} for msg in conversation_history
@@ -323,6 +380,22 @@ def _run_openai_compatible(conversation_history, log_path, public_log_url, base_
         else:
             final_text = msg.content or ""
             break
+
+    if final_text is None:
+        # Ran out of tool-call iterations without a final answer — force one
+        # last no-tools call so we get a real (possibly null-but-honest) JSON
+        # reply instead of silently falling back to "{}" -> answer: null.
+        messages.append({"role": "user", "content": FORCE_FINAL_PROMPT})
+        try:
+            final_response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            final_text = final_response.choices[0].message.content or ""
+        except Exception as e:
+            final_text = json.dumps(
+                {"answer": None, "error": f"ran out of iterations: {e}"}
+            )
 
     return _finalize(final_text, conversation_history, tool_call_log, log_path, public_log_url)
 

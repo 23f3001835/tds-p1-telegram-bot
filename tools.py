@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 MAX_FETCH_CHARS = 20000
-RUN_TIMEOUT_SECONDS = 30
+RUN_TIMEOUT_SECONDS = 60
 
 PY_PRELUDE = """
 import pandas as pd
@@ -57,7 +57,7 @@ def search_web(query: str) -> str:
         try:
             resp = requests.post(
                 "https://api.tavily.com/search",
-                json={"api_key": tavily_key, "query": query, "max_results": 8},
+                json={"api_key": tavily_key, "query": query, "max_results": 5},
                 timeout=20,
             )
             resp.raise_for_status()
@@ -160,6 +160,10 @@ def run_python(code: str) -> str:
     """
     Execute a python snippet in a subprocess with pandas/requests/bs4 available.
     The snippet should print() whatever it wants returned.
+
+    NOTE: each call runs in a brand-new subprocess. Nothing persists between
+    calls (no variables, no imports beyond the preloaded ones, no downloaded
+    data) — every call must be fully self-contained.
     """
     full_code = PY_PRELUDE + "\n" + textwrap.dedent(code)
     try:
@@ -232,6 +236,16 @@ TOOL_DEFINITIONS = [
             "pdfplumber, and BytesIO are already imported — use pdfplumber "
             "to extract text/tables from PDF reports (a common format for "
             "government statistical publications like MOSPI/census reports). "
+            "IMPORTANT — STATELESS EXECUTION: every call to this tool runs "
+            "in a FRESH, ISOLATED subprocess. NOTHING persists between "
+            "calls — no variables, no downloaded data, no imports beyond "
+            "the preloaded ones. If you need something from an earlier "
+            "run_python call (a variable like `target_text`, a downloaded "
+            "PDF, a parsed table), you MUST re-fetch and re-derive it from "
+            "scratch inside THIS SAME code block. Never reference a "
+            "variable name defined in a previous run_python call — it will "
+            "raise NameError. Write each call as a fully self-contained "
+            "script from imports to final print(). "
             "Always print() the value(s) you need back. "
             "Never use a made-up/placeholder URL in this code — only URLs "
             "confirmed real via search_web or fetch_url."
