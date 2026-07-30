@@ -67,7 +67,10 @@ def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Bot starting (polling)...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(
+    allowed_updates=Update.ALL_TYPES,
+    stop_signals=None,
+)
 
 
 if __name__ == "__main__":
