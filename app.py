@@ -1,25 +1,20 @@
-import os
-import threading
-from flask import Flask, send_file
+from flask import Flask
+from threading import Thread
+import asyncio
+
 from bot import main
 
 app = Flask(__name__)
 
-@app.get("/")
-def home():
+@app.route("/")
+def health():
     return "Bot is running"
 
-@app.get("/run.jsonl")
-def run_log():
-    if os.path.exists("run.jsonl"):
-        return send_file("run.jsonl", mimetype="application/json")
-    return "run.jsonl not found", 404
+def run_bot():
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    main()
 
-# Start the Telegram bot in a background thread
-threading.Thread(target=main, daemon=True).start()
+Thread(target=run_bot, daemon=True).start()
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000)),
-    )
+    app.run(host="0.0.0.0", port=10000)
