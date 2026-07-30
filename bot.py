@@ -57,20 +57,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     CHAT_HISTORY[chat_id] = []
 
 
+import asyncio
+
 def main():
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
     request = HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=30.0,
         write_timeout=30.0,
         pool_timeout=30.0,
     )
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    app = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .request(request)
+        .build()
+    )
+
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
+
     logger.info("Bot starting (polling)...")
+
     app.run_polling(
-    allowed_updates=Update.ALL_TYPES,
-    stop_signals=None,
-)
+        allowed_updates=Update.ALL_TYPES,
+        stop_signals=None,
+    )
 
 
 if __name__ == "__main__":
